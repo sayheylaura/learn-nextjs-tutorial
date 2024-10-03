@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { sql } from '@vercel/postgres';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { signIn } from '@/auth';
+import { AuthError } from 'next-auth';
 
 const FormSchema = z.object({
   id: z.string(),
@@ -19,6 +21,12 @@ const FormSchema = z.object({
   date: z.string(),
 });
 
+const LoginFormSchema = z.object({
+  email: z.string().email({
+    message: 'Please enter a valid email address.',
+  }),
+});
+
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
 const UpdateInvoice = FormSchema.omit({ id: true, date: true });
 
@@ -30,6 +38,15 @@ export type State = {
   };
   message?: string | null;
 };
+
+export type LoginErrors = {
+  errors?: {
+    email?: string[];
+  };
+  message?: string | null;
+};
+
+export type LoginState = LoginErrors | string | undefined;
 
 export async function createInvoice(prevState: State, formData: FormData) {
   // Validate form using Zod
@@ -124,5 +141,32 @@ export async function deleteInvoice(id: string) {
     return {
       message: 'Database Error: Failed to Delete Invoice.',
     };
+  }
+}
+
+export async function authenticate(prevState: LoginState, formData: FormData) {
+  const validatedFields = LoginFormSchema.safeParse({
+    email: formData.get('email'),
+  });
+
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: 'Missing Fields. Failed to Sign In.',
+    };
+  }
+
+  try {
+    await signIn('credentials', formData);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      switch (error.type) {
+        case 'CredentialsSignin':
+          return 'Invalid credentials.';
+        default:
+          return 'Something went wrong.';
+      }
+    }
+    throw error;
   }
 }
